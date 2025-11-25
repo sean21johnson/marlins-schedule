@@ -17,6 +17,7 @@ export interface AffiliateGame {
   status?: GameStatus;
   statusText?: string;
   startTimeUtc?: string;
+  startTimeTbd?: boolean; // <-- added
   venueId?: number;
   venueName?: string;
   probablePitchers?: {
@@ -113,6 +114,7 @@ export function mapScheduleToAffiliateGames(
       status,
       statusText: game.status.detailedState,
       startTimeUtc: game.gameDate,
+      startTimeTbd: game.status.startTimeTBD === true,
 
       venueId: game.venue?.id,
       venueName: game.venue?.name ?? '',

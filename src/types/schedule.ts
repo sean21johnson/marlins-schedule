@@ -1,5 +1,3 @@
-// src/types/schedule.ts
-
 export interface Person {
   fullName: string;
 }
@@ -17,8 +15,9 @@ export interface Side {
 }
 
 export interface GameStatus {
-  abstractGameState: string; // "Preview" | "Live" | "Final" | etc
+  abstractGameState: string;
   detailedState: string;
+  startTimeTBD?: boolean;
 }
 
 export interface Venue {
@@ -29,7 +28,7 @@ export interface Venue {
 
 export interface Game {
   gamePk: number;
-  gameDate: string; // ISO string
+  gameDate: string;
   status: GameStatus;
   teams: {
     home: Side;
@@ -48,7 +47,7 @@ export interface Game {
 }
 
 export interface ScheduleDate {
-  date: string; // "2025-07-15"
+  date: string;
   totalItems: number;
   games: Game[];
 }

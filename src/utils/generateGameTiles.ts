@@ -60,7 +60,12 @@ export function generateGameTiles(
         statusLabel = game.statusText ?? 'In Progress';
         break;
       case 'UPCOMING': {
-        const timeLabel = formatLocalGameTime(game.startTimeUtc);
+        // If MLB marks start time as TBD, the API often sends a placeholder UTC time (ex: 07:33Z).
+        // In that case we should show "Time TBD" instead of formatting it.
+        const timeLabel = game.startTimeTbd
+          ? undefined
+          : formatLocalGameTime(game.startTimeUtc);
+
         statusLabel = timeLabel ?? 'Time TBD';
         break;
       }

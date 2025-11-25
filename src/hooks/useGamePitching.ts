@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AffiliateGame } from '@/utils/mapScheduleToAffiliateGames';
 import { MLB_PARENT_ABBREVIATIONS } from '@/config/mlbParentAbbreviations';
@@ -25,45 +25,79 @@ interface GameExtraInfo {
 
 type GameInfoByPk = Record<number, GameExtraInfo>;
 
+type LiveFeedResponse = {
+  liveData?: {
+    probablePitchers?: {
+      home?: { fullName?: string };
+      away?: { fullName?: string };
+    };
+    decisions?: {
+      winner?: { fullName?: string };
+      loser?: { fullName?: string };
+      save?: { fullName?: string };
+    };
+  };
+  gameData?: {
+    probablePitchers?: {
+      home?: { fullName?: string };
+      away?: { fullName?: string };
+    };
+    teams?: {
+      home?: { id?: number; parentOrgId?: number };
+      away?: { id?: number; parentOrgId?: number };
+    };
+  };
+};
+
+function buildGamePkKey(games: AffiliateGame[]): string {
+  const pks = new Set<number>();
+  for (const g of games) {
+    if (typeof g.gamePk === 'number') pks.add(g.gamePk);
+  }
+  return Array.from(pks)
+    .sort((a, b) => a - b)
+    .join(',');
+}
+
 export function useGamePitching(
   games: AffiliateGame[],
 ): (AffiliateGame & { opponentParentAbbr?: string })[] {
-  const gamePks = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          games
-            .map((g) => g.gamePk)
-            .filter((pk): pk is number => typeof pk === 'number'),
-        ),
-      ),
-    [games],
-  );
+  const gamePkKey = useMemo(() => buildGamePkKey(games), [games]);
 
   const [byPk, setByPk] = useState<GameInfoByPk>({});
 
+  const fetchedPksRef = useRef<Set<number>>(new Set());
+
   useEffect(() => {
-    if (gamePks.length === 0) {
-      return;
-    }
+    if (!gamePkKey) return;
+
+    const pks = gamePkKey
+      .split(',')
+      .map((s) => Number(s))
+      .filter((n) => Number.isFinite(n));
+
+    const toFetch = pks.filter((pk) => !fetchedPksRef.current.has(pk));
+    if (toFetch.length === 0) return;
 
     let cancelled = false;
+    const controllers = toFetch.map(() => new AbortController());
 
     const fetchAll = async () => {
       try {
         const entries = await Promise.all(
-          gamePks.map(async (pk) => {
+          toFetch.map(async (pk, idx) => {
             const res = await fetch(
               `https://statsapi.mlb.com/api/v1.1/game/${pk}/feed/live`,
+              { signal: controllers[idx].signal },
             );
             if (!res.ok) {
               throw new Error(`Failed to fetch live game ${pk}`);
             }
 
-            const json = await res.json();
+            const json = (await res.json()) as LiveFeedResponse;
 
-            const liveProbable = json.liveData?.probablePitchers ?? null;
-            const gameProbable = json.gameData?.probablePitchers ?? null;
+            const liveProbable = json.liveData?.probablePitchers ?? undefined;
+            const gameProbable = json.gameData?.probablePitchers ?? undefined;
 
             const probablePitchers: ProbablePitchersSide = {};
             const homeProb =
@@ -78,11 +112,11 @@ export function useGamePitching(
             if (homeProb) probablePitchers.home = homeProb;
             if (awayProb) probablePitchers.away = awayProb;
 
-            const decisionsRaw = json.liveData?.decisions ?? {};
+            const decisionsRaw = json.liveData?.decisions ?? undefined;
             const decisions: DecisionsInfo = {
-              winner: decisionsRaw.winner?.fullName,
-              loser: decisionsRaw.loser?.fullName,
-              save: decisionsRaw.save?.fullName,
+              winner: decisionsRaw?.winner?.fullName,
+              loser: decisionsRaw?.loser?.fullName,
+              save: decisionsRaw?.save?.fullName,
             };
 
             const homeTeam = json.gameData?.teams?.home;
@@ -126,12 +160,19 @@ export function useGamePitching(
 
         if (cancelled) return;
 
-        const next: GameInfoByPk = {};
-        for (const [pk, info] of entries) {
-          next[pk] = info;
+        for (const [pk] of entries) {
+          fetchedPksRef.current.add(pk);
         }
-        setByPk(next);
+
+        setByPk((prev) => {
+          const next: GameInfoByPk = { ...prev };
+          for (const [pk, info] of entries) {
+            next[pk] = info;
+          }
+          return next;
+        });
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         if (!cancelled) {
           void err;
         }
@@ -142,11 +183,12 @@ export function useGamePitching(
 
     return () => {
       cancelled = true;
+      for (const c of controllers) c.abort();
     };
-  }, [gamePks]);
+  }, [gamePkKey]);
 
   return useMemo(() => {
-    if (gamePks.length === 0) return games;
+    if (!gamePkKey) return games;
 
     return games.map((game) => {
       const pk = game.gamePk;
@@ -174,5 +216,5 @@ export function useGamePitching(
         opponentParentAbbr,
       };
     });
-  }, [games, byPk, gamePks]);
+  }, [games, byPk, gamePkKey]);
 }
